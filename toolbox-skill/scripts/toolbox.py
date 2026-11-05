@@ -745,6 +745,55 @@ def select_exe_hint(recipe: dict[str, Any], plat: str) -> str:
     raise ToolboxError("recipe 缺少适用于当前平台的 exe 配置")
 
 
+def exe_name_candidates(name: str, exe_hint: Optional[str]) -> list[str]:
+    """生成在系统 PATH 中探测时使用的命令名候选（去重、保持顺序）。
+
+    同时考虑工具登记名与 recipe 的 exe 别名，例如 ripgrep 的 exe 是 rg。
+    """
+    candidates: list[str] = [name]
+    if exe_hint:
+        candidates.append(Path(exe_hint).name)
+        candidates.append(Path(exe_hint).stem)
+    ordered: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in ordered:
+            ordered.append(candidate)
+    return ordered
+
+
+def find_in_path(name: str, exe_hint: Optional[str] = None) -> Optional[str]:
+    """在系统 PATH 中查找工具，命中返回可执行文件绝对路径，否则返回 None。"""
+    for candidate in exe_name_candidates(name, exe_hint):
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
+def skip_if_in_path(
+    name: str,
+    exe_hint: Optional[str],
+    requested_version: Optional[str],
+    force: bool,
+    action: str = "安装",
+) -> bool:
+    """若系统 PATH 中已有同名工具，默认跳过安装，避免与系统版本重复。
+
+    - 显式指定了版本（如 ensure protoc@25.1）时不跳过，尊重精确版本请求；
+    - `--force` 时不跳过，强制装入 toolbox。
+    """
+    if force or requested_version:
+        return False
+    found = find_in_path(name, exe_hint)
+    if found:
+        print(
+            f"系统 PATH 中已存在 `{name}`：{found}，跳过{action}。"
+            f"如需仍装入 toolbox，请加 --force。"
+        )
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # 锁（同一个共享目录避免并发写坏索引）
 # ---------------------------------------------------------------------------
@@ -1184,6 +1233,10 @@ def cmd_ensure(args: argparse.Namespace) -> int:
         recipes = load_recipes(home)
         for spec in args.names:
             name, version = split_name_version(spec)
+            recipe = recipes.get(name)
+            exe_hint = select_exe_hint(recipe, platform_key()) if recipe else None
+            if skip_if_in_path(name, exe_hint, version, args.force, "安装"):
+                continue
             # 每装好一个就落盘，避免中途失败丢失已完成记录
             install_recipe(home, index, recipes, name, version, args.force)
             save_index(home, index)
@@ -1239,6 +1292,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
         recipes = load_recipes(home)
         for spec in specs:
             name, version = split_name_version(spec)
+            recipe = recipes.get(name)
+            exe_hint = select_exe_hint(recipe, platform_key()) if recipe else None
+            if skip_if_in_path(name, exe_hint, version, args.force, "安装"):
+                continue
             install_recipe(home, index, recipes, name, version, args.force)
             save_index(home, index)
     return 0
@@ -1249,6 +1306,8 @@ def cmd_get(args: argparse.Namespace) -> int:
     ensure_layout(home)
     with home_lock(home):
         index = load_index(home)
+        if args.name and skip_if_in_path(args.name, args.exe, args.version, args.force, "安装"):
+            return 0
         install_direct(
             home,
             index,
@@ -1267,7 +1326,16 @@ def cmd_get(args: argparse.Namespace) -> int:
 def cmd_path(args: argparse.Namespace) -> int:
     home = toolbox_home(args.home)
     index = load_index(home)
-    info = resolve_exe(home, index, args.name, args.version)
+    try:
+        info = resolve_exe(home, index, args.name, args.version)
+    except ToolboxError:
+        # toolbox 中缺失时，回退到系统 PATH 查找，避免重复安装系统已有的工具
+        recipe = load_recipes(home).get(args.name)
+        exe_hint = select_exe_hint(recipe, platform_key()) if recipe else None
+        found = find_in_path(args.name, exe_hint)
+        if not found:
+            raise
+        info = {"name": args.name, "version": None, "path": found, "source": "system PATH"}
     if args.json:
         print(json.dumps(info, ensure_ascii=False, indent=2))
     else:

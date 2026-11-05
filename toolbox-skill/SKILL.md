@@ -15,7 +15,7 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
 - 构建、打包、测试、反编译等流程需要 `apktool`、`jadx`、`rg`、`jq`、`protoc` 这类工具。
 - 你准备直接在 PATH、项目目录、临时目录里找工具或下载工具。
 
-固定执行顺序：`list` → `find` → `path`（已有）→ `ensure` / `get`（缺失）→ 最后才考虑其它来源。**不要因为“可能本机已经装了”就跳过工具箱检查。**
+固定执行顺序：`list` → `find` → `path`（已有，缺失时自动回退系统 PATH）→ `ensure` / `get`（toolbox 与系统 PATH 都没有时才装）。**不要凭印象跳过工具箱检查；系统 PATH 中已有的工具不会再重复装入 toolbox，除非显式指定版本或加 `--force`。**
 
 不适用：只是修改业务代码、完全不涉及外部命令时，不必加载。
 
@@ -28,6 +28,7 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
 2. **绝不要**把工具下载或解压到工程目录、`node_modules`、`.venv`、`tmp`、`%TEMP%` 等工程/临时目录。
 3. 用工具前先 `list` / `find` / `path`；只有缺失时才 `ensure` / `get`。
 4. 项目里只保留一份工具清单（如 `.toolbox`），**不放二进制**；二进制统一在共享目录。
+5. **系统 PATH 去重**：安装前先用 `shutil.which` 探测系统 PATH（含 recipe 的 exe 别名，如 `ripgrep`→`rg`）。命中则默认**跳过安装**并提示，避免与系统版本重复；加 `--force` 可强制装入。`toolbox path` 在 toolbox 中未命中时会自动回退返回系统 PATH 中的路径；显式指定版本（如 `ensure protoc@25.1`）时不跳过，尊重精确版本请求。
 
 ## 目录结构
 

@@ -38,7 +38,7 @@ toolbox find [关键字] [--json]
 toolbox ensure <名称>[@版本] [<名称>[@版本] ...] [--force] [--json]
 ```
 
-按内置 recipe 把工具装进共享目录；已存在同版本则跳过，`--force` 强制重装。
+按内置 recipe 把工具装进共享目录；已存在同版本则跳过，`--force` 强制重装。安装前会用 `shutil.which` 探测系统 PATH（含 recipe 的 exe 别名，如 `ripgrep`→`rg`）：命中则默认跳过安装并提示，`--force` 可强制装入；显式指定版本时不跳过。`get` 在提供 `--name` 时同样先做 PATH 探测。
 
 ### sync
 
@@ -69,7 +69,7 @@ toolbox get <URL | github:owner/repo[@tag]>
 toolbox path <名称> [--version <版本>] [--json]
 ```
 
-打印可执行文件的绝对路径。先查 `index.json`，找不到时自动扫描工具箱下的工具目录，再看目录根部直接投放的 `<名称>[.exe]`；未安装或文件缺失时以退出码 2 结束。JSON 输出中的 `indexed` 表示是否来自索引。本命令只返回路径，不负责执行。
+打印可执行文件的绝对路径。先查 `index.json`，找不到时自动扫描工具箱下的工具目录，再看目录根部直接投放的 `<名称>[.exe]`；**toolbox 中都没有时会回退到系统 PATH 查找（含 recipe 的 exe 别名），命中则返回该路径并在 JSON 中标注 `"source": "system PATH"`**；toolbox 与 PATH 都没有时以退出码 2 结束。JSON 输出中的 `indexed` 表示是否来自索引。本命令只返回路径，不负责执行。
 
 ### remove / rm / uninstall
 
