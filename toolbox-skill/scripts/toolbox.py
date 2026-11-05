@@ -42,6 +42,9 @@ SCHEMA_VERSION = 1
 TOOLBOX_VERSION = "0.1.0"
 USER_AGENT = f"toolbox/{TOOLBOX_VERSION} (shared-tool-cache)"
 CHUNK_SIZE = 256 * 1024
+# Windows：优先把共享目录放在这些盘符根目录（仅当该盘存在且为本地固定盘时采用）。
+# 首选 D 盘；D 盘不可用（不存在/可移动盘/光驱等）时退回“最后一个本地固定盘”。
+PREFERRED_DRIVES = ("D",)
 # 共享目录根部由 toolbox 自己占用的名字，不能当作工具目录
 RESERVED_NAMES = {"bin", "downloads", "store", "index.json", "recipes.json", "toolbox.py"}
 
@@ -83,10 +86,32 @@ def last_fixed_drive() -> Optional[str]:
     return max(letters) if letters else None
 
 
+def preferred_fixed_drive() -> Optional[str]:
+    """Windows：按 PREFERRED_DRIVES 顺序返回首个“存在且为本地固定盘”的盘符。
+
+    默认优先 D 盘；只有该盘存在且 GetDriveType 为 DRIVE_FIXED(3) 时才采用，
+    否则返回 None，由调用方退回最后一个本地固定盘。
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+
+        for letter in PREFERRED_DRIVES:
+            if ctypes.windll.kernel32.GetDriveTypeW(f"{letter}:\\") == 3:  # DRIVE_FIXED
+                return letter
+    except Exception:  # ctypes 不可用时按路径存在性判断
+        for letter in PREFERRED_DRIVES:
+            if os.path.exists(f"{letter}:\\"):
+                return letter
+    return None
+
+
 def default_home() -> Path:
-    """默认共享目录：Windows 取最后一个固定盘根目录下的 toolbox，如 D:\\toolbox。"""
+    """默认共享目录：Windows 优先固定盘（默认 D:\\toolbox），
+    首选盘不可用时退化为最后一个本地固定盘根目录下的 toolbox。"""
     if os.name == "nt":
-        letter = last_fixed_drive()
+        letter = preferred_fixed_drive() or last_fixed_drive()
         if letter:
             return Path(f"{letter}:\\toolbox")
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
@@ -1471,7 +1496,8 @@ def cmd_where(args: argparse.Namespace) -> int:
     elif (os.environ.get("TOOLBOX_HOME") or "").strip().lower() not in ("", "auto"):
         source = "TOOLBOX_HOME"
     else:
-        source = "auto(最后一个固定盘)"
+        pref = preferred_fixed_drive()
+        source = f"auto(优先{pref}盘)" if pref else "auto(最后一个固定盘)"
     info = {
         "home": str(home),
         "source": source,
