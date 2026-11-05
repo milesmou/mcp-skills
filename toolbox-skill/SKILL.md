@@ -38,13 +38,13 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
   recipes.json   # 可选：用户自定义 recipe，覆盖内置
 ```
 
-不生成 `bin` 启动器，直接执行各工具目录里的可执行文件（或 `toolbox path` 拿路径、`toolbox run` 运行）。
+不生成 `bin` 启动器；`path` 只返回可执行文件绝对路径，由调用方直接执行。
 
 允许下载到共享目录的 `downloads/`，但**每次安装结束（成功或失败）必须立即清除**，正常情况下不会残留；进程中断留下的残留在下次 `gc` 时清空。
 
 ## 查找顺序
 
-`list` / `find` / `path` / `run` 解析工具时按以下顺序：
+`list` / `find` / `path` 解析工具时按以下顺序：
 
 1. `index.json` 中的登记；
 2. 扫描 `<TOOLBOX_HOME>/<工具名>/` 下的实际文件（**索引缺失或损坏也能找到**；兼容旧 `store/` 布局）；
@@ -87,14 +87,19 @@ python -X utf8 <TB> get github:owner/repo@v1.2.3 --asset "tool-*-windows-amd64.z
 python -X utf8 <TB> get github:jqlang/jq --name jq     # 省略 --asset 时按当前平台自动匹配
 ```
 
-### 3. 使用工具
+### 3. 使用工具（只返回路径）
 
 ```text
-python -X utf8 <TB> run ripgrep -- --version     # 直接执行，参数放在 -- 之后
-python -X utf8 <TB> path ripgrep                 # 拿到路径后自行调用
+python -X utf8 <TB> path ripgrep                 # 返回可执行文件绝对路径
 ```
 
-没有 `bin` 目录，也不生成启动器；需要固定路径时用 `path`，需要执行时用 `run`。
+拿到路径后由当前 shell 直接执行，例如：
+
+```powershell
+& "D:\toolbox\ripgrep\rg.exe" --version
+```
+
+`.bat` / `.cmd` 在 PowerShell 里同样用 `&` 调用；不生成 `bin`，也不提供执行封装。
 
 ### 4. 项目清单同步（推荐）
 
@@ -131,8 +136,7 @@ protoc@36.2
 | `ensure <名称>[@版本]...` | 按 recipe 确保已安装（缺失才下载） |
 | `sync [--file <清单>]` | 按项目清单安装所有缺失工具 |
 | `get <url\|github:owner/repo[@tag]>` | 安装列表之外的任意工具 |
-| `path <名称>` | 打印可执行文件绝对路径 |
-| `run <名称> -- <参数...>` | 用共享工具执行命令 |
+| `path <名称>` | 打印可执行文件绝对路径（唯一使用入口） |
 | `remove <名称> [--version] [--all]` | 移除工具 |
 | `repair` | 整目录搬迁后校验索引，并收编目录中的工具 |
 | `gc [--prune-other-platforms]` | 清空下载临时区、清理旧平台版本；不删除顶层工具目录 |

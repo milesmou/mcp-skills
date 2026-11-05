@@ -11,7 +11,6 @@
     python toolbox.py list
     python toolbox.py ensure ripgrep
     python toolbox.py path ripgrep
-    python toolbox.py run ripgrep -- --version
     python toolbox.py get github:sharkdp/fd --asset "fd-v*-x86_64-pc-windows-msvc.zip"
     python toolbox.py path jq
 """
@@ -27,7 +26,6 @@ import platform as platform_module
 import re
 import shutil
 import string
-import subprocess
 import sys
 import tarfile
 import tempfile
@@ -1252,23 +1250,6 @@ def cmd_path(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run(args: argparse.Namespace) -> int:
-    home = toolbox_home(args.home)
-    index = load_index(home)
-    exe = resolve_exe(home, index, args.name, args.version)["path"]
-    lower = exe.lower()
-    if os.name == "nt" and lower.endswith((".bat", ".cmd")):
-        argv = ["cmd", "/c", exe, *args.args]
-    elif lower.endswith(".ps1"):
-        argv = ["powershell", "-NoProfile", "-File", exe, *args.args]
-    else:
-        argv = [exe, *args.args]
-    try:
-        return subprocess.call(argv)
-    except OSError as exc:
-        raise ToolboxError(f"无法运行 {exe}: {exc}") from exc
-
-
 def cmd_remove(args: argparse.Namespace) -> int:
     home = toolbox_home(args.home)
     with home_lock(home):
@@ -1521,7 +1502,6 @@ def build_parser() -> argparse.ArgumentParser:
   toolbox ensure ripgrep
   toolbox ensure fd@10.5.1
   toolbox path ripgrep
-  toolbox run ripgrep -- --version
   toolbox get github:jqlang/jq --asset jq-windows-amd64.exe --name jq
   toolbox get https://example.com/tool.zip --name mytool --exe mytool.exe
 """,
@@ -1564,12 +1544,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--version")
     p.set_defaults(func=cmd_path)
-
-    p = sub.add_parser("run", help="用共享目录中的工具执行命令")
-    p.add_argument("name")
-    p.add_argument("--version")
-    p.add_argument("args", nargs=argparse.REMAINDER, help="传给工具的参数（前面加 --）")
-    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("remove", aliases=["rm", "uninstall"], help="移除工具")
     p.add_argument("name")
