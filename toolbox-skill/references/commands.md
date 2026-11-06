@@ -22,7 +22,7 @@
 toolbox list [--json]
 ```
 
-列出每个已安装工具的版本、平台、占用空间与状态（`ok` / `MISSING` / `ok (未登记)`）。除 `index.json` 外也会扫描工具箱下的各工具目录，索引未登记但磁盘存在的工具会显示为「未登记」。
+列出每个已安装工具的版本、平台、占用空间与状态（`ok` / `MISSING` 等）。除 `index.json` 外也会扫描工具箱下的各工具目录；扫描到磁盘存在但索引未登记的工具时，会**先立即收编进 `index.json`**（`source: (discovered)`）再列出，并在 stderr 提示「已自动登记 N 个未登记工具」。
 
 ### find / search
 
@@ -30,7 +30,7 @@ toolbox list [--json]
 toolbox find [关键字] [--json]
 ```
 
-在「已安装的工具」「工具箱目录中实际存在的工具」与「内置 recipe」中按名称模糊查找，并标注 `已安装` / `已安装 (未登记)` / `可下载(recipe)`。
+在「已安装的工具」「工具箱目录中实际存在的工具」与「内置 recipe」中按名称模糊查找。扫描到未登记工具时会先自动收编进索引再显示。
 
 ### ensure / install
 
@@ -69,7 +69,7 @@ toolbox get <URL | github:owner/repo[@tag]>
 toolbox path <名称> [--version <版本>] [--json]
 ```
 
-打印可执行文件的绝对路径。先查 `index.json`，找不到时自动扫描工具箱下的工具目录，再看目录根部直接投放的 `<名称>[.exe]`；**toolbox 中都没有时会回退到系统 PATH 查找（含 recipe 的 exe 别名），命中则返回该路径并在 JSON 中标注 `"source": "system PATH"`**；toolbox 与 PATH 都没有时以退出码 2 结束。JSON 输出中的 `indexed` 表示是否来自索引。本命令只返回路径，不负责执行。
+打印可执行文件的绝对路径。先查 `index.json`，找不到时自动扫描工具箱下的工具目录（**扫描到的未登记工具会先立即收编进索引**），再看目录根部直接投放的 `<名称>[.exe]`；**toolbox 中都没有时会回退到系统 PATH 查找（含 recipe 的 exe 别名），命中则返回该路径并在 JSON 中标注 `"source": "system PATH"`**；toolbox 与 PATH 都没有时以退出码 2 结束。JSON 输出中的 `indexed` 表示是否来自索引。本命令只返回路径，不负责执行。
 
 ### remove / rm / uninstall
 
@@ -98,7 +98,7 @@ toolbox gc [--prune-other-platforms]
 toolbox repair [--update-hash] [--json]
 ```
 
-校验索引与各工具目录，用于**整个共享目录搬家到新电脑或新盘符之后**；同时把未登记的工具收编进索引。不生成启动器。发现文件哈希不一致时报告，`--update-hash` 会把当前哈希写回索引。
+校验索引与各工具目录，用于**整个共享目录搬家到新电脑或新盘符之后**；同时把未登记的工具收编进索引（日常命令已会自动收编，这里作为全量校验/兜底）。不生成启动器。发现文件哈希不一致时报告，`--update-hash` 会把当前哈希写回索引。
 
 ### doctor
 
@@ -106,7 +106,7 @@ toolbox repair [--update-hash] [--json]
 toolbox doctor [--json]
 ```
 
-校验索引中每个条目的可执行文件是否存在、`exe_sha256` 是否匹配；同时扫描各工具目录，列出磁盘上存在但索引未登记的工具（可用 `repair` 收编）。索引问题导致退出码为 1；仅有未登记工具不算失败。
+校验索引中每个条目的可执行文件是否存在、`exe_sha256` 是否匹配；同时扫描各工具目录，**扫描到的未登记工具会先立即收编进索引**（`source: (discovered)`），无法识别可执行文件的目录（如多候选、SDK 目录）保持不动。索引问题导致退出码为 1。
 
 ### where / home
 

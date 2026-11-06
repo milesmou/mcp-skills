@@ -696,6 +696,30 @@ def adopt_scanned(home: Path, index: dict[str, Any]) -> list[str]:
     return adopted
 
 
+def adopt_pending(home: Path) -> tuple[dict[str, Any], list[str]]:
+    """加载索引，并把目录中发现但未登记的工具“立即收编”进索引。
+
+    有变更才写回 index.json，返回 (最新索引, 本次收编的工具列表)。
+    供 list / find / path / doctor 等命令在扫描到未登记工具时即时登记，
+    不再需要手动运行 repair。
+    """
+    with home_lock(home):
+        index = load_index(home)
+        adopted = adopt_scanned(home, index)
+        if adopted:
+            save_index(home, index)
+    return index, adopted
+
+
+def report_adopted(adopted: list[str]) -> None:
+    """把本次自动登记的工具提示打到 stderr（不污染 JSON/路径的标准输出）。"""
+    if adopted:
+        print(
+            f"已自动登记 {len(adopted)} 个未登记工具: " + ", ".join(adopted),
+            file=sys.stderr,
+        )
+
+
 # ---------------------------------------------------------------------------
 # recipe
 # ---------------------------------------------------------------------------
@@ -1112,7 +1136,8 @@ def cleanup_stale_temp(max_age_seconds: int = 24 * 3600) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     home = toolbox_home(args.home)
-    index = load_index(home)
+    index, adopted = adopt_pending(home)
+    report_adopted(adopted)
     rows: dict[tuple[str, str, str], dict[str, Any]] = {}
     for name in index.get("tools", {}):
         tool = index["tools"][name]
@@ -1174,7 +1199,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_find(args: argparse.Namespace) -> int:
     home = toolbox_home(args.home)
-    index = load_index(home)
+    index, adopted = adopt_pending(home)
+    report_adopted(adopted)
     recipes = load_recipes(home)
     query = args.query.lower()
     scanned_versions: dict[str, list[str]] = {}
@@ -1325,7 +1351,8 @@ def cmd_get(args: argparse.Namespace) -> int:
 
 def cmd_path(args: argparse.Namespace) -> int:
     home = toolbox_home(args.home)
-    index = load_index(home)
+    index, adopted = adopt_pending(home)
+    report_adopted(adopted)
     try:
         info = resolve_exe(home, index, args.name, args.version)
     except ToolboxError:
@@ -1464,7 +1491,7 @@ def cmd_gc(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     home = toolbox_home(args.home)
-    index = load_index(home)
+    index, adopted = adopt_pending(home)
     problems = []
     total = 0
     indexed_keys = set()
@@ -1486,10 +1513,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if (r["name"], r["version"], r["platform"]) not in indexed_keys
     ]
     if args.json:
-        print(json.dumps({"home": str(home), "entries": total, "problems": problems, "unindexed": unindexed}, ensure_ascii=False, indent=2))
+        print(json.dumps({"home": str(home), "entries": total, "adopted": adopted, "problems": problems, "unindexed": unindexed}, ensure_ascii=False, indent=2))
     else:
         print(f"共享目录: {home}")
         print(f"检查条目: {total}")
+        if adopted:
+            print("本次已自动登记:")
+            for item in adopted:
+                print("  + " + item)
         if problems:
             print("发现问题:")
             for item in problems:

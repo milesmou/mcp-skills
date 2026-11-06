@@ -29,6 +29,7 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
 3. 用工具前先 `list` / `find` / `path`；只有缺失时才 `ensure` / `get`。
 4. 项目里只保留一份工具清单（如 `.toolbox`），**不放二进制**；二进制统一在共享目录。
 5. **系统 PATH 去重**：安装前先用 `shutil.which` 探测系统 PATH（含 recipe 的 exe 别名，如 `ripgrep`→`rg`）。命中则默认**跳过安装**并提示，避免与系统版本重复；加 `--force` 可强制装入。`toolbox path` 在 toolbox 中未命中时会自动回退返回系统 PATH 中的路径；显式指定版本（如 `ensure protoc@25.1`）时不跳过，尊重精确版本请求。
+6. **未登记工具自动收编**：`list` / `find` / `path` / `doctor`（以及 `gc` / `repair`）扫描工具目录时，一旦发现磁盘上存在但 `index.json` 未登记的工具，会**立即写入索引完成登记**（`source: (discovered)`，并计算 `exe_sha256`），不再需要手动 `repair`；仅在目录内有多个候选、无法确定可执行文件时才会跳过（避免误认 SDK/大目录）。
 
 ## 目录结构
 
