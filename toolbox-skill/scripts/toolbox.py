@@ -567,11 +567,12 @@ def scan_tools(
     home: Path,
     only_name: Optional[str] = None,
     skip_names: frozenset[str] = frozenset(),
+    skip_dirs: frozenset[Path] = frozenset(),
 ) -> list[dict[str, Any]]:
     """扫描目录，返回磁盘上实际存在的工具。
 
     主布局（每个工具一个目录）：
-      <TOOLBOX_HOME>/<名称>/...
+      <TOOLBOX_HOME>/<名称>/... 或带版本号的 <TOOLBOX_HOME>/<名称>-<版本>/...
     同时兼容旧布局：
       <TOOLBOX_HOME>/store/<名称>/<版本>/<平台>/...
     """
@@ -582,6 +583,12 @@ def scan_tools(
         for record in records:
             name = record["name"]
             if name in skip_names or name in seen:
+                continue
+            try:
+                record_dir = record["dir"].resolve()
+            except OSError:
+                record_dir = record["dir"]
+            if record_dir in skip_dirs:  # 已被索引登记（含带版本号的目录），不重复发现
                 continue
             seen.add(name)
             found.append(record)
@@ -669,11 +676,27 @@ def find_tool(
     return None
 
 
+def indexed_dirs(home: Path, index: dict[str, Any]) -> frozenset[Path]:
+    """索引中所有版本目录的绝对路径集合，用于扫描时按“目录”去重。"""
+    dirs: set[Path] = set()
+    for tool in index.get("tools", {}).values():
+        for entry in tool.get("versions", {}).values():
+            rel = entry.get("dir")
+            if not rel:
+                continue
+            try:
+                dirs.add((home / rel).resolve())
+            except OSError:
+                pass
+    return frozenset(dirs)
+
+
 def adopt_scanned(home: Path, index: dict[str, Any]) -> list[str]:
     """把目录里存在但索引未登记的工具收编进索引。"""
     adopted: list[str] = []
     skip = frozenset(n for n, t in index.get("tools", {}).items() if t.get("versions"))
-    for record in scan_tools(home, skip_names=skip):
+    skip_dirs = indexed_dirs(home, index)
+    for record in scan_tools(home, skip_names=skip, skip_dirs=skip_dirs):
         tool = index["tools"].setdefault(record["name"], {"versions": {}})
         versions = tool.setdefault("versions", {})
         if record["version"] in versions:
@@ -885,7 +908,9 @@ def install_artifact(
 
     if name in RESERVED_NAMES:
         raise ToolboxError(f"`{name}` 是 toolbox 保留名称，不能用作工具名")
-    dest_dir = home / name  # 每个工具一个目录，单文件也放进自己的目录
+    # 独立工具目录带版本号（<名称>-<版本>），支持同一工具多版本共存；
+    # 工具集/SDK 类目录（如 AndroidSdk）不在此自动创建，扫描时原样保留。
+    dest_dir = home / f"{name}-{version}"
     # 允许下载到共享目录的 downloads/，但本次安装结束（成功或失败）必须清空
     downloads_dir = home / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
@@ -923,8 +948,8 @@ def install_artifact(
         exe = dest_dir / rel_exe
 
         tool = index["tools"].setdefault(name, {"versions": {}})
-        # 单目录单版本：目录已被本次安装替换，旧版本记录一并作废
-        tool["versions"] = {}
+        tool.setdefault("versions", {})
+        # 多版本共存：仅替换当前 <名称>-<版本> 目录，保留其它已安装版本
         entry = {
             "platform": plat,
             "dir": rel_to_home(home, dest_dir),
@@ -1077,7 +1102,9 @@ def resolve_exe(home: Path, index: dict[str, Any], name: str, version: Optional[
     info = find_tool(home, index, name, version)
     if info:
         return info
-    known = set(index.get("tools", {})) | {r["name"] for r in scan_tools(home)}
+    known = set(index.get("tools", {})) | {
+        r["name"] for r in scan_tools(home, skip_dirs=indexed_dirs(home, index))
+    }
     installed = ", ".join(sorted(known)) or "(空)"
     raise ToolboxError(
         f"未安装 `{name}`，索引和目录中都没有找到。已安装: {installed}\n"
@@ -1155,7 +1182,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             }
     # 索引里没有、但目录里实际存在的工具也列出来
     skip = frozenset(n for n, t in index.get("tools", {}).items() if t.get("versions"))
-    for record in scan_tools(home, skip_names=skip):
+    for record in scan_tools(home, skip_names=skip, skip_dirs=indexed_dirs(home, index)):
         key = (record["name"], record["version"], record["platform"])
         if key in rows:
             continue
@@ -1205,7 +1232,7 @@ def cmd_find(args: argparse.Namespace) -> int:
     query = args.query.lower()
     scanned_versions: dict[str, list[str]] = {}
     skip = frozenset(n for n, t in index.get("tools", {}).items() if t.get("versions"))
-    for record in scan_tools(home, skip_names=skip):
+    for record in scan_tools(home, skip_names=skip, skip_dirs=indexed_dirs(home, index)):
         scanned_versions.setdefault(record["name"], []).append(record["version"])
     results = []
     for name in sorted(set(index.get("tools", {})) | set(recipes) | set(scanned_versions)):
@@ -1509,7 +1536,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                     problems.append(f"{name} {version}: 哈希不匹配（可能已损坏或被替换）")
     unindexed = [
         f"{r['name']} {r['version']} ({r['platform']})"
-        for r in scan_tools(home, skip_names=frozenset(index.get("tools", {})))
+        for r in scan_tools(home, skip_names=frozenset(index.get("tools", {})), skip_dirs=indexed_dirs(home, index))
         if (r["name"], r["version"], r["platform"]) not in indexed_keys
     ]
     if args.json:
