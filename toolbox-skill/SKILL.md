@@ -1,6 +1,6 @@
 ---
 name: toolbox
-description: 命令行工具（CLI）的统一入口。凡是查找、确认是否已安装、下载、安装、升级、运行或定位任何外部命令行工具，都必须先使用本技能。覆盖 rg/ripgrep、fd、jq、yq、bat、fzf、hyperfine、shellcheck、protoc、gitleaks、apktool、jadx、adb、ffmpeg、curl 等，以及用户说「命令找不到 / command not found / 不是内部或外部命令 / 缺个工具 / 帮我装一下 / 本机有没有 / 用某个命令 / 构建需要某工具 / install or download a CLI / run a tool / which or where」的场景。规则：先 toolbox list/find/path，缺失再 ensure/get；不要先扫 PATH、项目目录或往临时目录下载。
+description: 命令行工具（CLI）的统一入口。凡是查找、确认是否已安装、下载、安装、升级、运行或定位任何外部命令行工具，都必须先使用本技能。覆盖 rg/ripgrep、fd、jq、yq、bat、fzf、hyperfine、shellcheck、protoc、gitleaks、apktool、jadx、adb、ffmpeg、curl 等，以及用户说「命令找不到 / command not found / 不是内部或外部命令 / 缺个工具 / 帮我装一下 / 本机有没有 / 用某个命令 / 构建需要某工具 / install or download a CLI / run a tool / which or where」的场景。规则：先查工程根目录 .env.local，没有或不可用再 toolbox list/find/path，仍缺失再 ensure/get，外部找到后写回 .env.local；不要先扫 PATH、项目目录或往临时目录下载。哪个工程用到本技能，就在该工程根目录 AGENTS.md 自动补上这条规范。
 ---
 
 # Toolbox — 工程工具共享目录
@@ -15,9 +15,33 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
 - 构建、打包、测试、反编译等流程需要 `apktool`、`jadx`、`rg`、`jq`、`protoc` 这类工具。
 - 你准备直接在 PATH、项目目录、临时目录里找工具或下载工具。
 
-固定执行顺序：`list` → `find` → `path`（已有，缺失时自动回退系统 PATH）→ `ensure` / `get`（toolbox 与系统 PATH 都没有时才装）。**不要凭印象跳过工具箱检查；系统 PATH 中已有的工具不会再重复装入 toolbox，除非显式指定版本或加 `--force`。**
+固定执行顺序：先补工程根目录 `AGENTS.md` → 读该工程 `.env.local` → `list` → `find` → `path`（已有，缺失时自动回退系统 PATH）→ `ensure` / `get`（toolbox 与系统 PATH 都没有时才装）→ 把找到的路径写回 `.env.local`。**不要凭印象跳过工具箱检查；系统 PATH 中已有的工具不会再重复装入 toolbox，除非显式指定版本或加 `--force`。**
 
 不适用：只是修改业务代码、完全不涉及外部命令时，不必加载。
+
+## 工程根目录 Agents 文档（触发即补充）
+
+哪个工程用到了 toolbox，就在**该工程根目录**的 Agents 文档里补上依赖工具规范。这是查找或安装工具之前的必做步骤，不要只把规范留在本技能里。
+
+1. 文档固定为工程根目录的 `AGENTS.md`。已有则在原文件上补充；没有则创建。不要写到子目录，也不要另起一个不同文件名。
+2. 文中还没有标题 `依赖工具（.env.local）` 时，在文末原样追加下面这一节，不改已有内容，也不重复追加。
+3. 确认根目录 `.gitignore` 包含 `.env.local`。已有 `.gitignore` 则只追加缺失的这一行；没有则新建只含这一行的 `.gitignore`。`.env.local` 不提交版本库。
+
+追加内容：
+
+```markdown
+## 依赖工具（.env.local）
+
+本工程维护一份根目录 `.env.local`，且不提交版本库。寻找依赖工具时优先查看 `.env.local`；没有记录，或记录的路径不存在、不可执行时，才去外部查找。外部查找成功后，把可用的绝对路径写回 `.env.local` 缓存，供下次优先使用。
+```
+
+## 依赖工具查找顺序
+
+在已触发 toolbox 的工程里定位命令行工具时按此顺序，不要跳过 `.env.local`：
+
+1. 读工程根目录 `.env.local`。键为工具名（只用字母、数字和下划线，建议大写），值为可执行文件绝对路径，例如 `RG=D:\toolbox\ripgrep-15.0.0\rg.exe`。路径存在且可执行则直接使用。
+2. 没有该键，或路径缺失、不可执行时，才外部查找：`list` → `find` → `path`（含系统 PATH 回退）→ `ensure` / `get`。
+3. 外部查找成功后，把 `工具名=绝对路径` 写回 `.env.local`（同名键则更新）。二进制仍只放在共享目录，不放进工程。
 
 ## 核心规则
 
@@ -26,7 +50,7 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
    - macOS / Linux：`~/.local/share/toolbox`
    - 可用环境变量 `TOOLBOX_HOME` 或命令行 `--home` 覆盖；设成 `TOOLBOX_HOME=auto` 可强制按当前机器自动解析（同样优先 D 盘）。
 2. **绝不要**把工具下载或解压到工程目录、`node_modules`、`.venv`、`tmp`、`%TEMP%` 等工程/临时目录。
-3. 用工具前先 `list` / `find` / `path`；只有缺失时才 `ensure` / `get`。
+3. 用工具前先查工程根目录 `.env.local`；没有或不可用时再 `list` / `find` / `path`；仍然缺失才 `ensure` / `get`。外部找到后把绝对路径写回 `.env.local`。
 4. 项目里只保留一份工具清单（如 `.toolbox`），**不放二进制**；二进制统一在共享目录。
 5. **系统 PATH 去重**：安装前先用 `shutil.which` 探测系统 PATH（含 recipe 的 exe 别名，如 `ripgrep`→`rg`）。命中则默认**跳过安装**并提示，避免与系统版本重复；加 `--force` 可强制装入。`toolbox path` 在 toolbox 中未命中时会自动回退返回系统 PATH 中的路径；显式指定版本（如 `ensure protoc@25.1`）时不跳过，尊重精确版本请求。
 6. **未登记工具自动收编**：`list` / `find` / `path` / `doctor`（以及 `gc` / `repair`）扫描工具目录时，一旦发现磁盘上存在但 `index.json` 未登记的工具，会**立即写入索引完成登记**（`source: (discovered)`，并计算 `exe_sha256`），不再需要手动 `repair`；仅在目录内有多个候选、无法确定可执行文件时才会跳过（避免误认 SDK/大目录）。
