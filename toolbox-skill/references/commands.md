@@ -11,7 +11,7 @@
 
 共享目录默认位置：
 
-- Windows：**最后一个本地固定盘的根目录 `toolbox`**，如 `D:\toolbox`（自动解析盘符，不写死；U 盘、光驱、网络盘不参与）
+- Windows：默认 `D:\toolbox`。D 盘不存在，或不是硬盘（可移动盘、光驱、网络盘等）时，改用 `%USERPROFILE%\.toolbox`
 - macOS / Linux：`~/.local/share/toolbox`
 
 ## 命令
@@ -230,9 +230,9 @@ protoc@36.2
 
 | 场景 | 做法 |
 | --- | --- |
-| 同一系统与架构，想连工具一起搬 | 复制整个 `toolbox` 目录到新机器最后一个固定盘的根目录（`<盘符>:\toolbox`），运行 `toolbox repair` 校验；路径不同也没关系 |
+| 同一系统与架构，想连工具一起搬 | 复制整个 `toolbox` 目录到新机器的 `D:\toolbox`（D 盘不可用时为 `%USERPROFILE%\.toolbox`），运行 `toolbox repair` 校验；路径不同也没关系 |
 | 只迁移项目，工具重下 | 只带项目的 `.toolbox` / `.toolbox.json`，在新机运行 `toolbox sync` |
 | 换了系统或 CPU 架构 | 旧平台二进制无法运行，`sync` 会下载新平台版本；用 `toolbox gc --prune-other-platforms` 清掉旧平台残留 |
-| 环境变量 | 不要写死盘符；留空或设为 `TOOLBOX_HOME=auto`，每台机器自动定位最后一个固定盘 |
+| 环境变量 | 不要写死盘符；留空或设为 `TOOLBOX_HOME=auto`。Windows 优先 `D:\toolbox`，D 盘不存在或不是硬盘时用 `%USERPROFILE%\.toolbox` |
 
 判断当前实际位置用 `toolbox where`，它会显示解析来源。

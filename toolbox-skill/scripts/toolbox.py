@@ -25,7 +25,6 @@ import os
 import platform as platform_module
 import re
 import shutil
-import string
 import sys
 import tarfile
 import tempfile
@@ -42,8 +41,8 @@ SCHEMA_VERSION = 1
 TOOLBOX_VERSION = "0.1.0"
 USER_AGENT = f"toolbox/{TOOLBOX_VERSION} (shared-tool-cache)"
 CHUNK_SIZE = 256 * 1024
-# Windows：优先把共享目录放在这些盘符根目录（仅当该盘存在且为本地固定盘时采用）。
-# 首选 D 盘；D 盘不可用（不存在/可移动盘/光驱等）时退回“最后一个本地固定盘”。
+# Windows：优先把共享目录放在这些盘符根目录（仅当该盘存在且为本地硬盘时采用）。
+# 首选 D 盘；D 盘不存在或不是硬盘时，改用 %USERPROFILE%\.toolbox。
 PREFERRED_DRIVES = ("D",)
 # 共享目录根部由 toolbox 自己占用的名字，不能当作工具目录
 RESERVED_NAMES = {"bin", "downloads", "store", "index.json", "recipes.json", "toolbox.py"}
@@ -57,40 +56,11 @@ class ToolboxError(Exception):
 # 路径与平台
 # ---------------------------------------------------------------------------
 
-def last_fixed_drive() -> Optional[str]:
-    """Windows：返回本地固定硬盘中盘符最大的一个（如 'D'）。
-
-    排除 U 盘（可移动盘）、光驱、网络盘，避免插拔设备改变工具目录。
-    """
-    if os.name != "nt":
-        return None
-    letters: list[str] = []
-    try:
-        import ctypes
-
-        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
-        for index, letter in enumerate(string.ascii_uppercase):
-            if not (bitmask & (1 << index)):
-                continue
-            drive_type = ctypes.windll.kernel32.GetDriveTypeW(f"{letter}:\\")
-            if drive_type == 3:  # DRIVE_FIXED
-                letters.append(letter)
-        if not letters:  # 没有固定盘时退化为所有已挂载盘符
-            letters = [
-                letter
-                for index, letter in enumerate(string.ascii_uppercase)
-                if bitmask & (1 << index)
-            ]
-    except Exception:  # ctypes 不可用时按路径存在性判断
-        letters = [letter for letter in string.ascii_uppercase if os.path.exists(f"{letter}:\\")]
-    return max(letters) if letters else None
-
-
 def preferred_fixed_drive() -> Optional[str]:
-    """Windows：按 PREFERRED_DRIVES 顺序返回首个“存在且为本地固定盘”的盘符。
+    """Windows：按 PREFERRED_DRIVES 顺序返回首个“存在且为本地硬盘”的盘符。
 
-    默认优先 D 盘；只有该盘存在且 GetDriveType 为 DRIVE_FIXED(3) 时才采用，
-    否则返回 None，由调用方退回最后一个本地固定盘。
+    默认优先 D 盘；只有该盘存在且 GetDriveType 为 DRIVE_FIXED(3) 时才采用。
+    不存在、可移动盘、光驱或网络盘都返回 None，由调用方改用用户主目录。
     """
     if os.name != "nt":
         return None
@@ -108,23 +78,25 @@ def preferred_fixed_drive() -> Optional[str]:
 
 
 def default_home() -> Path:
-    """默认共享目录：Windows 优先固定盘（默认 D:\\toolbox），
-    首选盘不可用时退化为最后一个本地固定盘根目录下的 toolbox。"""
+    """默认共享目录。
+
+    Windows 默认 D:\\toolbox，且只在 D 盘存在并为本地硬盘时使用；
+    否则放到用户主目录的 .toolbox（即 %USERPROFILE%\\.toolbox）。
+    """
     if os.name == "nt":
-        letter = preferred_fixed_drive() or last_fixed_drive()
+        letter = preferred_fixed_drive()
         if letter:
             return Path(f"{letter}:\\toolbox")
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        return Path(base) / "toolbox"
+        return Path.home() / ".toolbox"
     base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / "toolbox"
 
 
 def toolbox_home(explicit: Optional[str] = None) -> Path:
-    """返回共享目录根。优先级：--home > TOOLBOX_HOME > 最后一个固定盘的 toolbox。
+    """返回共享目录根。优先级：--home > TOOLBOX_HOME > 默认位置。
 
-    TOOLBOX_HOME 设为 `auto` 时忽略具体值，按当前机器的最后一个固定盘解析，
-    换电脑后无需改环境变量。
+    TOOLBOX_HOME 设为 `auto` 时忽略具体值，按当前机器重新解析：
+    Windows 优先 D:\\toolbox，D 盘不存在或不是硬盘时用 %USERPROFILE%\\.toolbox。
     """
     if explicit:
         return Path(explicit).expanduser().resolve()
@@ -1622,8 +1594,11 @@ def cmd_where(args: argparse.Namespace) -> int:
     elif (os.environ.get("TOOLBOX_HOME") or "").strip().lower() not in ("", "auto"):
         source = "TOOLBOX_HOME"
     else:
-        pref = preferred_fixed_drive()
-        source = f"auto(优先{pref}盘)" if pref else "auto(最后一个固定盘)"
+        if os.name == "nt":
+            pref = preferred_fixed_drive()
+            source = f"auto({pref}:\\toolbox)" if pref else "auto(%USERPROFILE%\\.toolbox)"
+        else:
+            source = "auto(~/.local/share/toolbox)"
     info = {
         "home": str(home),
         "source": source,
@@ -1660,7 +1635,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--home",
-        help="覆盖共享目录；默认取最后一个固定盘根目录的 <盘符>:\\toolbox，或 TOOLBOX_HOME（设为 auto 则按机器自动解析）",
+        help="覆盖共享目录；Windows 默认 D:\\toolbox，D 盘不存在或不是硬盘时用 %USERPROFILE%\\.toolbox，也可由 TOOLBOX_HOME 指定（设为 auto 则按机器自动解析）",
     )
     parser.add_argument("--json", action="store_true", help="以 JSON 输出，便于程序解析")
     sub = parser.add_subparsers(dest="command", required=True)

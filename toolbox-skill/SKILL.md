@@ -46,9 +46,9 @@ description: 命令行工具（CLI）的统一入口。凡是查找、确认是�
 ## 核心规则
 
 1. 所有工具只装到共享目录 `TOOLBOX_HOME`：
-   - **Windows（默认）**：优先使用 `D:\toolbox`（仅当 D 盘存在且为本地固定盘时）；D 盘不可用则取最后一个本地固定盘的 `<盘符>:\toolbox`。换电脑后按此规则自动解析。
+   - **Windows（默认）**：`D:\toolbox`（仅当 D 盘存在且为本地硬盘时）。D 盘不存在，或不是硬盘（可移动盘、光驱、网络盘等）时，改用 `%USERPROFILE%\.toolbox`。
    - macOS / Linux：`~/.local/share/toolbox`
-   - 可用环境变量 `TOOLBOX_HOME` 或命令行 `--home` 覆盖；设成 `TOOLBOX_HOME=auto` 可强制按当前机器自动解析（同样优先 D 盘）。
+   - 可用环境变量 `TOOLBOX_HOME` 或命令行 `--home` 覆盖；设成 `TOOLBOX_HOME=auto` 可强制按当前机器自动解析（同样优先 `D:\toolbox`，否则用户主目录）。
 2. **绝不要**把工具下载或解压到工程目录、`node_modules`、`.venv`、`tmp`、`%TEMP%` 等工程/临时目录。
 3. 用工具前先查工程根目录 `.env.local`；没有或不可用时再 `list` / `find` / `path`；仍然缺失才 `ensure` / `get`。外部找到后把绝对路径写回 `.env.local`。
 4. 项目里只保留一份工具清单（如 `.toolbox`），**不放二进制**；二进制统一在共享目录。
@@ -184,10 +184,10 @@ protoc@36.2
 
 索引与工具路径都相对共享目录记录，因此**整个共享目录可以直接搬走**。
 
-- **同一系统架构（推荐）**：把整个 `toolbox` 目录复制到新电脑的 `D:\toolbox`（或该机最后一个固定盘根目录，即 `<盘符>:\toolbox`），跑一次 `repair` 校验即可。路径不必和旧机器相同。
+- **同一系统架构（推荐）**：把整个 `toolbox` 目录复制到新电脑的 `D:\toolbox`（D 盘不存在或不是硬盘时放到 `%USERPROFILE%\.toolbox`），跑一次 `repair` 校验即可。路径不必和旧机器相同。
 - **只带项目**：不要复制二进制，只把项目里的 `.toolbox` 清单带到新电脑，运行 `toolbox sync` 重新下载当前平台版本；这最干净，也避免跨系统不兼容。
 - **换了系统或 CPU 架构**（如 Windows x64 → macOS/arm64）：旧平台二进制不能运行，`sync` 会按新平台下载；旧平台的残留用 `toolbox gc --prune-other-platforms` 清掉。
-- 环境变量：`TOOLBOX_HOME` 一般留空或设为 `auto`，Windows 上会优先定位 `D:\toolbox`（D 盘为固定盘时），否则退回最后一个固定盘。
+- 环境变量：`TOOLBOX_HOME` 一般留空或设为 `auto`。Windows 上优先定位 `D:\toolbox`（D 盘为本地硬盘时），否则使用 `%USERPROFILE%\.toolbox`。
 
 ## 维护与排障
 
